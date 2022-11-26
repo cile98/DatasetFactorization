@@ -27,7 +27,7 @@ def main(args):
     args.dsa = True if args.dsa == 'True' else False
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    eval_it_pool = np.arange((args.Iteration // 10) * 9, args.Iteration + 1, args.eval_it).tolist()
+    eval_it_pool = np.arange(0, args.Iteration + 1, args.eval_it).tolist()
     channel, im_size, num_classes, class_names, mean, std, dst_train, dst_test, testloader, loader_train_dict, class_map, class_map_inv = get_dataset(
         args.dataset, args.data_path, args.batch_real, args.subset, args=args)
     model_eval_pool = get_eval_pool(args.eval_mode, args.model, args.model)
@@ -238,13 +238,29 @@ def main(args):
                 wandb.log({"Pixels": wandb.Histogram(image_syn.detach().cpu())}, step=it)
 
                 if args.ipc < 50 or args.force_save:
+                    indices_chunks = []
+                    if not indices_chunks:
+                        indices = torch.randperm(num_classes * args.ipc)
+                        indices_chunks = list(torch.split(indices, args.batch_syn))
+
+                    these_indices = indices_chunks.pop()
+                    base_idx = these_indices % args.ipc
+                    style_idx = random.randint(0, args.n_style - 1)
+                    base = image_save[:, base_idx, :, :, :]
+                    style = styles[style_idx].detach()
+                    final_save_image = style(base)
                     upsampled = image_save
                     if args.dataset != "ImageNet":
                         upsampled = torch.repeat_interleave(upsampled, repeats=4, dim=2)
                         upsampled = torch.repeat_interleave(upsampled, repeats=4, dim=3)
+                        final_upsampled = torch.repeat_interleave(final_save_image, repeats=4, dim=2)
+                        final_upsampled = torch.repeat_interleave(final_upsampled, repeats=4, dim=3)
+
                     grid = torchvision.utils.make_grid(upsampled, nrow=10, normalize=True, scale_each=True)
                     wandb.log({"Synthetic_Images": wandb.Image(grid.detach().cpu())}, step=it)
                     wandb.log({'Synthetic_Pixels': wandb.Histogram(image_save.detach().cpu())}, step=it)
+                    final_grid = torchvision.utils.make_grid(final_upsampled, nrow=10, normalize=True, scale_each=True)
+                    wandb.log({"Final_Synthetic_Images": wandb.Image(final_grid.detach().cpu())}, step=it)
 
                     for clip_val in [2.5]:
                         std = torch.std(image_save)
